@@ -61,13 +61,13 @@ class TestNegativeControlWithoutRace:
     def test_malicious_sparse_rejected_by_image_loader(self):
         io_handler = ImageEmbeddingMediaIO()
         encoded = _encode_tensor(_create_malicious_sparse_tensor())
-        with pytest.raises((RuntimeError, ValueError)):
+        with pytest.raises((RuntimeError, ValueError, VLLMValidationError)):
             io_handler.load_base64("", encoded.decode("utf-8"))
 
     def test_malicious_sparse_rejected_by_audio_loader(self):
         io_handler = AudioEmbeddingMediaIO()
         encoded = _encode_tensor(_create_malicious_sparse_tensor())
-        with pytest.raises((RuntimeError, ValueError)):
+        with pytest.raises((RuntimeError, ValueError, VLLMValidationError)):
             io_handler.load_base64("", encoded.decode("utf-8"))
 
 
@@ -247,7 +247,7 @@ class TestCrossLoaderLockSharing:
         malicious = _encode_tensor(_create_malicious_sparse_tensor())
         with pytest.raises((RuntimeError, ValueError, VLLMValidationError)):
             safe_load_prompt_embeds(model_config, malicious)
-        with pytest.raises((RuntimeError, ValueError)):
+        with pytest.raises((RuntimeError, ValueError, VLLMValidationError)):
             io_handler.load_base64("", malicious.decode("utf-8"))
 
     def test_all_loaders_use_same_context_manager(self):

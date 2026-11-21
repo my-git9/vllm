@@ -246,7 +246,7 @@ class TestImageEmbedsValidation:
         encoded = _encode_tensor(malicious_tensor)
 
         # Should raise RuntimeError due to invalid sparse tensor
-        with pytest.raises((RuntimeError, ValueError)) as exc_info:
+        with pytest.raises((RuntimeError, ValueError, VLLMValidationError)) as exc_info:
             io_handler.load_base64("", encoded.decode("utf-8"))
 
         error_msg = str(exc_info.value).lower()
@@ -261,7 +261,7 @@ class TestImageEmbedsValidation:
         torch.save(malicious_tensor, buffer)
         buffer.seek(0)
 
-        with pytest.raises((RuntimeError, ValueError)):
+        with pytest.raises((RuntimeError, ValueError, VLLMValidationError)):
             io_handler.load_bytes(buffer.read())
 
     def test_valid_numpy_tensor_accepted(self):
@@ -341,7 +341,7 @@ class TestAudioEmbedsValidation:
         encoded = _encode_tensor(malicious_tensor)
 
         # Should raise RuntimeError due to invalid sparse tensor
-        with pytest.raises((RuntimeError, ValueError)) as exc_info:
+        with pytest.raises((RuntimeError, ValueError, VLLMValidationError)) as exc_info:
             io_handler.load_base64("", encoded.decode("utf-8"))
 
         error_msg = str(exc_info.value).lower()
@@ -356,7 +356,7 @@ class TestAudioEmbedsValidation:
         torch.save(malicious_tensor, buffer)
         buffer.seek(0)
 
-        with pytest.raises((RuntimeError, ValueError)):
+        with pytest.raises((RuntimeError, ValueError, VLLMValidationError)):
             io_handler.load_bytes(buffer.read())
 
 
@@ -387,7 +387,7 @@ class TestSparseTensorValidationIntegration:
         io_handler = ImageEmbeddingMediaIO()
         attack_payload = _encode_tensor(_create_malicious_sparse_tensor())
 
-        with pytest.raises((RuntimeError, ValueError)):
+        with pytest.raises((RuntimeError, ValueError, VLLMValidationError)):
             io_handler.load_base64("", attack_payload.decode("utf-8"))
 
     def test_attack_scenario_chat_api_audio(self):
@@ -398,7 +398,7 @@ class TestSparseTensorValidationIntegration:
         io_handler = AudioEmbeddingMediaIO()
         attack_payload = _encode_tensor(_create_malicious_sparse_tensor())
 
-        with pytest.raises((RuntimeError, ValueError)):
+        with pytest.raises((RuntimeError, ValueError, VLLMValidationError)):
             io_handler.load_base64("", attack_payload.decode("utf-8"))
 
 

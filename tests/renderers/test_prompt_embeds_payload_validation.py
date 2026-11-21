@@ -27,10 +27,10 @@ from vllm.entrypoints.serve.exception_handling.error_response import (
     create_error_response,
 )
 from vllm.exceptions import VLLMValidationError
-from vllm.renderers.embed_utils import (
-    _MAX_EMBED_ERROR_REASON_CHARS,
-    safe_load_prompt_embeds,
-)
+from vllm.multimodal.media import AudioEmbeddingMediaIO, ImageEmbeddingMediaIO
+from vllm.multimodal.media.video import VideoEmbeddingMediaIO
+from vllm.renderers.embed_utils import safe_load_prompt_embeds
+from vllm.utils.sparse_utils import _MAX_EMBED_ERROR_REASON_CHARS
 
 
 @pytest.fixture
@@ -121,6 +121,26 @@ def test_unreadable_prompt_embeds_payload_is_a_client_error(model_config, payloa
     assert int(create_error_response(excinfo.value).error.code) == 400
 
 
+@pytest.mark.parametrize(
+    ("media_io", "parameter"),
+    [
+        (ImageEmbeddingMediaIO, "image_embeds"),
+        (AudioEmbeddingMediaIO, "audio_embeds"),
+        (VideoEmbeddingMediaIO, "video_embeds"),
+    ],
+)
+@pytest.mark.parametrize("payload", UNPARSABLE_PAYLOADS)
+def test_unreadable_mm_embeds_payload_is_a_client_error(media_io, parameter, payload):
+    """The `*_embeds` content parts take caller bytes and must answer 400 like
+    `prompt_embeds` does, instead of surfacing torch's error as 500."""
+    with pytest.raises(VLLMValidationError) as excinfo:
+        media_io().load_bytes(payload + b"A" * 100_000)
+
+    assert excinfo.value.parameter == parameter
+    assert int(create_error_response(excinfo.value).error.code) == 400
+    assert len(str(excinfo.value)) < 500
+
+
 @pytest.mark.parametrize("payload", UNPARSABLE_PAYLOADS)
 def test_the_error_body_stays_bounded(model_config, payload):
     """Torch's reason is built from the caller's bytes, so it must be truncated.
@@ -146,9 +166,7 @@ def test_a_long_reason_is_truncated_and_says_how_much_was_left_out(model_config)
     reason = "E" * (_MAX_EMBED_ERROR_REASON_CHARS + 37)
 
     with (
-        patch(
-            "vllm.renderers.embed_utils.torch.load", side_effect=RuntimeError(reason)
-        ),
+        patch("vllm.utils.sparse_utils.torch.load", side_effect=RuntimeError(reason)),
         pytest.raises(VLLMValidationError) as excinfo,
     ):
         safe_load_prompt_embeds(model_config, _encode(b"ignored"))
@@ -166,9 +184,7 @@ def test_a_short_reason_is_passed_through_whole(model_config):
     assert len(reason) <= _MAX_EMBED_ERROR_REASON_CHARS
 
     with (
-        patch(
-            "vllm.renderers.embed_utils.torch.load", side_effect=RuntimeError(reason)
-        ),
+        patch("vllm.utils.sparse_utils.torch.load", side_effect=RuntimeError(reason)),
         pytest.raises(VLLMValidationError) as excinfo,
     ):
         safe_load_prompt_embeds(model_config, _encode(b"ignored"))

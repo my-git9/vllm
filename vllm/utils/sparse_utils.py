@@ -22,6 +22,7 @@ import contextlib
 import threading
 import zipfile
 from io import BytesIO
+from typing import Final
 
 import torch
 
@@ -112,3 +113,54 @@ def safe_to_dense(tensor: object, *, parameter: str) -> torch.Tensor:
             )
 
     return tensor.to_dense()
+
+
+# How much of torch's own reason is repeated back to the caller. The reason is
+# built from bytes the caller sent, so it is bounded rather than echoed whole.
+_MAX_EMBED_ERROR_REASON_CHARS: Final = 200
+
+
+def _truncated_reason(exc: Exception) -> str:
+    """`exc`'s message, capped, saying how much was left out when it is capped.
+
+    Without the count a capped reason reads like the whole one, so a caller
+    debugging a large payload cannot tell that torch said more than this.
+    """
+    reason: Final = str(exc).strip() or type(exc).__name__
+    omitted: Final = len(reason) - _MAX_EMBED_ERROR_REASON_CHARS
+    if omitted <= 0:
+        return reason
+    return (
+        f"{reason[:_MAX_EMBED_ERROR_REASON_CHARS]}"
+        f"... ({omitted} more characters truncated)"
+    )
+
+
+def load_torch_payload(payload: bytes, *, parameter: str) -> torch.Tensor:
+    """`torch.load` caller-supplied embedding bytes; unreadable input is a 400.
+
+    torch has no single error type for "this is not a tensor file" (the zip
+    reader raises `RuntimeError`, the legacy pickle path raises `UnpicklingError`
+    or `KeyError`, an empty payload raises `EOFError`), and none of them is a
+    `ValueError`, so the entrypoints' fallback would answer 500. Catching by
+    behaviour rather than by type also survives torch changing which error it
+    raises for a given malformed payload. Running out of memory stays the
+    server's condition, not the caller's.
+    """
+    check_torch_archive_size(payload, parameter=parameter)
+    with check_sparse_tensor_invariants_threadsafe():
+        try:
+            tensor = torch.load(
+                BytesIO(payload),
+                weights_only=True,
+                map_location=torch.device("cpu"),
+            )
+        except (torch.OutOfMemoryError, MemoryError):
+            raise
+        except Exception as exc:
+            raise VLLMValidationError(
+                f"`{parameter}` could not be deserialized as a torch tensor: "
+                f"{_truncated_reason(exc)}",
+                parameter=parameter,
+            ) from exc
+        return safe_to_dense(tensor, parameter=parameter)
